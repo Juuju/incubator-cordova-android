@@ -17,7 +17,7 @@
 #       under the License.
 #
 # create a cordova/android project
-# 
+#
 # USAGE
 #   ./create [path package activity]
 #
@@ -35,7 +35,8 @@ VERSION=$(cat "$BUILD_PATH"/VERSION)
 
 PROJECT_PATH=${1:-'./example'}
 PACKAGE=${2:-"org.apache.cordova.example"}
-ACTIVITY=${3:-"cordovaExample"}
+PROJECT_NAME=${3:-"CordovaExample"}
+ACTIVITY=${4:-"CordovaActivity"}
 
 # clobber any existing example
 if [ -d "$PROJECT_PATH" ]
@@ -64,7 +65,7 @@ function on_error {
 }
 
 function replace {
-    local pattern=$1  
+    local pattern=$1
     local filename=$2
     # Mac OS X requires -i argument
     if [[ "$OSTYPE" =~ "darwin" ]]
@@ -85,12 +86,17 @@ PACKAGE_AS_PATH=$(echo $PACKAGE | sed 's/\./\//g')
 ACTIVITY_PATH="$PROJECT_PATH"/src/$PACKAGE_AS_PATH/$ACTIVITY.java
 MANIFEST_PATH="$PROJECT_PATH"/AndroidManifest.xml
 
-TARGET=$($ANDROID_BIN list targets | grep id: | tail -1 | cut -f 2 -d ' ' )
+echo "- Creating a new project \"${PROJECT_NAME}\"..."
+TARGET_INFO=$($ANDROID_BIN list targets | grep id: | tail -1)
+TARGET=$(echo $TARGET_INFO | cut -f 2 -d ' ')
+TARGET_SDK=$(echo $TARGET_INFO | rev | cut -c -3 | rev | cut -c -2)
+echo "- Auto-selecting best android target sdk available \"${TARGET_SDK}\" (id:\"${TARGET}\")."
 
 # if this a distribution release no need to build a jar
 if [ ! -e "$BUILD_PATH"/cordova-$VERSION.jar ] && [ -d "$BUILD_PATH"/framework ]
 then
-# update the cordova-android framework for the desired target
+
+    # update the cordova-android framework for the desired target
     $ANDROID_BIN update project --target $TARGET --path "$BUILD_PATH"/framework &> /dev/null
 
     if [ ! -e "$BUILD_PATH"/framework/libs/commons-codec-1.6.jar ]; then
@@ -103,14 +109,18 @@ then
         rm commons-codec-1.6-bin.zip && rm -rf commons-codec-1.6
     fi
 
-# compile cordova.js and cordova.jar
+    # compile cordova.js and cordova.jar
+    echo "- Compiling cordova-$VERSION.jar & cordova-$VERSION.js..."
     (cd "$BUILD_PATH"/framework && ant jar &> /dev/null )
 fi
 
 # create new android project
-$ANDROID_BIN create project --target $TARGET --path "$PROJECT_PATH" --package $PACKAGE --activity $ACTIVITY &> /dev/null
+echo "- Initializing the new Android project..."
+$ANDROID_BIN create project --name $PROJECT_NAME --target $TARGET --path "$PROJECT_PATH" --package $PACKAGE --activity $ACTIVITY &> /dev/null
 
 # copy project template
+cp -f "$BUILD_PATH"/bin/templates/project/.project "$PROJECT_PATH"
+cp -f "$BUILD_PATH"/bin/templates/project/.classpath "$PROJECT_PATH"
 cp -r "$BUILD_PATH"/bin/templates/project/assets "$PROJECT_PATH"
 cp -r "$BUILD_PATH"/bin/templates/project/res "$PROJECT_PATH"
 
@@ -127,13 +137,26 @@ else
 fi
 
 # interpolate the activity name and package
+replace "s/__NAME__/${PROJECT_NAME}/g" "${PROJECT_PATH}"/.project
+replace "s/__NAME__/${PROJECT_NAME}/g" "${PROJECT_PATH}"/res/values/strings.xml
+replace "s/__ACTIVITY__/${ACTIVITY}/g" "${PROJECT_PATH}"/res/values/strings.xml
+
 cp "$BUILD_PATH"/bin/templates/project/Activity.java "$ACTIVITY_PATH"
 replace "s/__ACTIVITY__/${ACTIVITY}/g" "$ACTIVITY_PATH"
 replace "s/__ID__/${PACKAGE}/g" "$ACTIVITY_PATH"
 
+# support specific android:configChanges
+if [ $TARGET_SDK -gt 13 ]; then
+    CONFIG_CHANGES="orientation|keyboardHidden|keyboard|screenSize|locale"
+else
+    CONFIG_CHANGES="orientation|keyboardHidden"
+fi;
+
 cp "$BUILD_PATH"/bin/templates/project/AndroidManifest.xml "$MANIFEST_PATH"
 replace "s/__ACTIVITY__/${ACTIVITY}/g" "$MANIFEST_PATH"
 replace "s/__PACKAGE__/${PACKAGE}/g" "$MANIFEST_PATH"
+replace "s/__TARGET__/${TARGET_SDK}/g" "$MANIFEST_PATH"
+replace "s/__CONFIG_CHANGES__/${CONFIG_CHANGES}/g" "$MANIFEST_PATH"
 
 # creating cordova folder and copying emulate/debug/log/launch scripts
 mkdir "$PROJECT_PATH"/cordova
@@ -144,3 +167,5 @@ cp "$BUILD_PATH"/bin/templates/cordova/clean "$PROJECT_PATH"/cordova/clean
 cp "$BUILD_PATH"/bin/templates/cordova/log "$PROJECT_PATH"/cordova/log
 cp "$BUILD_PATH"/bin/templates/cordova/emulate "$PROJECT_PATH"/cordova/emulate
 cp "$BUILD_PATH"/bin/templates/cordova/BOOM "$PROJECT_PATH"/cordova/BOOM
+
+echo "- Success! Your Cordova project is in $PROJECT_PATH.\n# Use import -> \"Existing Projects into Workspace in Eclipse\" to start hacking."
